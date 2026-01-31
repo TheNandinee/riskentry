@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Risk Regime Early Warning System</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        body {
+            background-color: #020202;
+            color: white;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+        .scrollbar-thin::-webkit-scrollbar {
+            width: 6px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+            background-color: #262626;
+            border-radius: 20px;
+        }
+        @media (hover: none) {
+            .custom-cursor { display: none !important; }
+        }
+    </style>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "react": "https://esm.sh/react@18.2.0",
+                "react-dom": "https://esm.sh/react-dom@18.2.0",
+                "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+                "lucide-react": "https://esm.sh/lucide-react@0.263.1",
+                "recharts": "https://esm.sh/recharts@2.12.0?external=react,react-dom",
+                "jspdf": "https://esm.sh/jspdf@2.5.1"
+            }
+        }
+    </script>
+    
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+    <div id="root">
+        <div style="height: 100vh; width: 100vw; display: flex; align-items: center; justify-content: center; background: #020202; color: #22d3ee; font-family: monospace; letter-spacing: 0.2em;">
+            INITIALIZING RISK SENTRY...
+        </div>
+    </div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef } from 'react';
+        import ReactDOM from 'react-dom/client';
+        import { jsPDF } from 'jspdf';
+        import { 
+            Activity, AlertTriangle, BarChart3, BrainCircuit, ChevronRight, ChevronLeft,
+            FileText, LayoutDashboard, Lock, Menu, MoreHorizontal, ShieldAlert, 
+            TrendingUp, User, XCircle, ArrowDown, Zap, Eye, CheckCircle2, Radar as RadarIcon, 
+            Binary, Siren, Flame, History, Settings, LogOut, Bell, ToggleLeft, ToggleRight,
+            Download, Filter
+        } from 'lucide-react';
+
+        // --- Mock Data ---
+        const HEATMAP_DATA = [
+            { from: 'Calm', to: 'Calm', prob: 0.85, reason: "Inertia typically maintains low vol." },
+            { from: 'Calm', to: 'Stress', prob: 0.12, reason: "Liquidity drying up in repo markets." },
+            { from: 'Calm', to: 'Panic', prob: 0.01, reason: "Structurally disallowed jump." },
+            { from: 'Calm', to: 'Relief', prob: 0.02, reason: "Noise." },
+            { from: 'Stress', to: 'Calm', prob: 0.10, reason: "Mean reversion requires policy intervention." },
+            { from: 'Stress', to: 'Stress', prob: 0.60, reason: "Volatility clustering effect." },
+            { from: 'Stress', to: 'Panic', prob: 0.25, reason: "Escalation risk high due to leverage." },
+            { from: 'Stress', to: 'Relief', prob: 0.05, reason: "Rapid recovery unlikely." },
+            { from: 'Panic', to: 'Panic', prob: 0.70, reason: "Forced liquidations create feedback loops." },
+            { from: 'Relief', to: 'Calm', prob: 0.40, reason: "Post-intervention stability." }
+        ];
+
+        // --- Shared Components ---
+        const Card = ({ children, className = "", noPadding = false }) => (
+            <div className={`bg-[#0a0a0a]/80 backdrop-blur-xl border border-white/5 rounded-lg shadow-2xl relative overflow-hidden group ${className}`}>
+                <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] z-0 opacity-20 pointer-events-none bg-[length:100%_4px,3px_100%]"></div>
+                <div className={`relative z-10 ${noPadding ? '' : 'p-6'}`}>{children}</div>
+            </div>
+        );
+
+        const SectionHeader = ({ title, subtitle }) => (
+            <div className="mb-8">
+                <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-3">
+                    <div className="relative flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500"></span>
+                    </div>
+                    {title}
+                </h2>
+                {subtitle && <p className="text-sm text-neutral-500 mt-1 ml-6 font-mono border-l border-neutral-800 pl-3">{subtitle}</p>}
+            </div>
+        );
+
+        const DisclaimerFooter = () => (
+            <div className="mt-4 pt-4 border-t border-white/5 text-[10px] text-neutral-600 flex items-start gap-2 font-mono">
+                <ShieldAlert size={12} className="mt-0.5 shrink-0" />
+                <p>AI interpretation. Human-in-the-loop required.</p>
+            </div>
+        );
+
+        // --- The Fixed Heatmap Component ---
+        const RegimeTransitionHeatmap = () => {
+            const [hoveredIndex, setHoveredIndex] = useState(null);
+            const regimes = ['Calm', 'Stress', 'Panic', 'Relief'];
+
+            return (
+                <Card className="w-full max-w-4xl mx-auto">
+                    <SectionHeader 
+                        title="Regime Transition Heatmap" 
+                        subtitle="Current State (Rows) → Future State (Cols)" 
+                    />
+                    
+                    <div className="relative mt-4">
+                        {/* Column Headers */}
+                        <div className="grid grid-cols-5 gap-2 mb-2">
+                            <div className="h-10"></div>
+                            {regimes.map(r => (
+                                <div key={r} className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold text-center self-end pb-2">
+                                    {r}
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Grid Body */}
+                        <div className="grid grid-cols-5 gap-2">
+                            {regimes.map((row, rowIndex) => (
+                                <React.Fragment key={row}>
+                                    <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold flex items-center pr-2">
+                                        {row}
+                                    </div>
+                                    
+                                    {regimes.map((col, colIndex) => {
+                                        const cellId = `${rowIndex}-${colIndex}`;
+                                        const data = HEATMAP_DATA.find(d => d.from === row && d.to === col) || { prob: 0, reason: "N/A" };
+                                        const isHovered = hoveredIndex === cellId;
+
+                                        return (
+                                            <div 
+                                                key={col}
+                                                onMouseEnter={() => setHoveredIndex(cellId)}
+                                                onMouseLeave={() => setHoveredIndex(null)}
+                                                className="relative h-20 bg-white/5 border border-white/5 rounded flex flex-col items-center justify-center group cursor-crosshair transition-all hover:bg-white/10 hover:border-cyan-500/40"
+                                            >
+                                                <span className={`text-xl font-mono font-bold ${data.prob > 0.4 ? 'text-rose-500' : 'text-neutral-400'}`}>
+                                                    {Math.round(data.prob * 100)}%
+                                                </span>
+
+                                                {/* CONDITIONAL POPUP: Only shows for hovered cell */}
+                                                {isHovered && (
+                                                    <div className="absolute z-[100] bottom-full mb-3 w-64 p-4 bg-[#0f0f0f] border border-cyan-500/30 rounded-lg shadow-2xl animate-in fade-in zoom-in-95 duration-200 pointer-events-none">
+                                                        <div className="flex items-center gap-2 mb-2 text-violet-400">
+                                                            <BrainCircuit size={14} />
+                                                            <span className="text-[10px] uppercase font-black tracking-widest">AI Rationale</span>
+                                                        </div>
+                                                        <p className="text-xs text-neutral-300 italic leading-relaxed">
+                                                            "{data.reason}"
+                                                        </p>
+                                                        {/* Tooltip Arrow */}
+                                                        <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#0f0f0f] border-r border-b border-cyan-500/30 rotate-45"></div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </React.Fragment>
+                            ))}
+                        </div>
+                    </div>
+                    <DisclaimerFooter />
+                </Card>
+            );
+        };
+
+        // --- Main App ---
+        const App = () => {
+            return (
+                <div className="min-h-screen p-8 flex items-center justify-center">
+                    <RegimeTransitionHeatmap />
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
